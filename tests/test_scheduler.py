@@ -21,3 +21,11 @@ async def test_unknown_type_is_reported_as_failure():
     row = db.latest_per_service()[0]
     assert row["ok"] is False
     assert "unknown type" in row["detail"]
+
+async def test_cycle_opens_incident_after_threshold():
+    db = Database(":memory:")
+    svc = [Service(name="bad dns", type="dns", target="does-not-exist.invalid")]
+    await run_cycle(svc, db, failure_threshold=2)
+    assert db.get_open_incident("bad dns") is None
+    await run_cycle(svc, db, failure_threshold=2)
+    assert db.get_open_incident("bad dns") is not None

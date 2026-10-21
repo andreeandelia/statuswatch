@@ -13,12 +13,21 @@ CREATE TABLE IF NOT EXISTS checks (
     detail TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_checks_service_ts ON checks(service, ts);
+
+CREATE TABLE IF NOT EXISTS incidents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    resolved_at REAL
+);
+CREATE INDEX IF NOT EXISTS idx_incidents_service ON incidents(service);
 """
 
 
 def _to_dict(row: sqlite3.Row) -> dict:
     data = dict(row)
-    data["ok"] = bool(data["ok"])
+    if "ok" in data:
+        data["ok"] = bool(data["ok"])
     return data
 
 
@@ -28,6 +37,8 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+
+    # ---------- checks ----------
 
     def save_check(self, service: str, result: CheckResult, ts: float | None = None):
         self.conn.execute(
@@ -55,6 +66,50 @@ class Database:
         rows = self.conn.execute(
             "SELECT * FROM checks WHERE service = ? ORDER BY id DESC LIMIT ?",
             (service, limit),
+        ).fetchall()
+        return [_to_dict(r) for r in rows]
+
+    def uptime(
+        self, service: str, window_seconds: float, now: float | None = None
+    ) -> float | None:
+        """Procentul de verificări reușite în fereastra dată. None dacă nu sunt date."""
+        now = now if now is not None else time.time()
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS total, SUM(ok) AS good FROM checks "
+            "WHERE service = ? AND ts >= ?",
+            (service, now - window_seconds),
+        ).fetchone()
+        if not row["total"]:
+            return None
+        return round(100 * row["good"] / row["total"], 2)
+
+    # ---------- incidents ----------
+
+    def open_incident(self, service: str, started_at: float) -> None:
+        self.conn.execute(
+            "INSERT INTO incidents (service, started_at) VALUES (?, ?)",
+            (service, started_at),
+        )
+        self.conn.commit()
+
+    def get_open_incident(self, service: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM incidents WHERE service = ? AND resolved_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (service,),
+        ).fetchone()
+        return _to_dict(row) if row else None
+
+    def close_incident(self, incident_id: int, resolved_at: float) -> None:
+        self.conn.execute(
+            "UPDATE incidents SET resolved_at = ? WHERE id = ?",
+            (resolved_at, incident_id),
+        )
+        self.conn.commit()
+
+    def list_incidents(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM incidents ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [_to_dict(r) for r in rows]
 
