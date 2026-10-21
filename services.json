@@ -1,0 +1,15 @@
+[
+  { "name": "GitHub web", "type": "http", "target": "https://github.com" },
+  {
+    "name": "GitHub HTTPS port",
+    "type": "tcp",
+    "target": "github.com",
+    "port": 443
+  },
+  { "name": "GitHub DNS", "type": "dns", "target": "github.com" },
+  {
+    "name": "Python.org web",
+    "type": "http",
+    "target": "https://www.python.org"
+  }
+]
