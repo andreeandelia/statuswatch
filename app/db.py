@@ -100,6 +100,13 @@ class Database:
         ).fetchone()
         return _to_dict(row) if row else None
 
+    def last_incident(self, service: str) -> dict | None:
+        row = self.conn.execute(
+        "SELECT * FROM incidents WHERE service = ? ORDER BY id DESC LIMIT 1",
+        (service,),
+        ).fetchone()
+        return _to_dict(row) if row else None
+
     def close_incident(self, incident_id: int, resolved_at: float) -> None:
         self.conn.execute(
             "UPDATE incidents SET resolved_at = ? WHERE id = ?",

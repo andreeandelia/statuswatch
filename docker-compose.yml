@@ -1,0 +1,14 @@
+services:
+  statuswatch:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      STATUSWATCH_WEBHOOK_URL: ${STATUSWATCH_WEBHOOK_URL:-}
+    volumes:
+      - statuswatch-data:/data
+      - ./services.json:/app/services.json:ro
+    restart: unless-stopped
+
+volumes:
+  statuswatch-data:

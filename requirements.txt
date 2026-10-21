@@ -1,7 +1,4 @@
 fastapi
 uvicorn[standard]
 httpx
-dnspython
 jinja2
-pytest
-pytest-asyncio

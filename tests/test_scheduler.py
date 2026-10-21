@@ -1,6 +1,7 @@
 from app.config import Service
 from app.db import Database
 from app.scheduler import run_cycle
+from app.checker import CheckResult
 
 
 async def test_run_cycle_saves_one_row_per_service():
@@ -29,3 +30,41 @@ async def test_cycle_opens_incident_after_threshold():
     assert db.get_open_incident("bad dns") is None
     await run_cycle(svc, db, failure_threshold=2)
     assert db.get_open_incident("bad dns") is not None
+
+class FakeNotifier:
+    def __init__(self):
+        self.messages = []
+
+    async def notify(self, text):
+        self.messages.append(text)
+        return True
+
+
+async def test_notifier_called_once_when_incident_opens():
+    db = Database(":memory:")
+    notifier = FakeNotifier()
+    svc = [Service(name="bad dns", type="dns", target="does-not-exist.invalid")]
+
+    await run_cycle(svc, db, failure_threshold=2, notifier=notifier)
+    assert notifier.messages == []
+
+    await run_cycle(svc, db, failure_threshold=2, notifier=notifier)
+    assert len(notifier.messages) == 1
+    assert "DOWN" in notifier.messages[0]
+
+    # încă picat, dar incidentul e deja deschis: fără mesaj nou
+    await run_cycle(svc, db, failure_threshold=2, notifier=notifier)
+    assert len(notifier.messages) == 1
+
+
+async def test_notifier_called_when_incident_resolves():
+    db = Database(":memory:")
+    notifier = FakeNotifier()
+    db.save_check("svc", CheckResult(False, None, "timeout"), ts=1.0)
+    db.open_incident("svc", 1.0)
+
+    svc = [Service(name="svc", type="dns", target="localhost")]
+    await run_cycle(svc, db, failure_threshold=2, notifier=notifier)
+
+    assert len(notifier.messages) == 1
+    assert "RECOVERED" in notifier.messages[0]

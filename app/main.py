@@ -21,18 +21,8 @@ templates.env.filters["dt"] = lambda ts: datetime.fromtimestamp(
 ).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def format_duration(seconds: float) -> str:
-    seconds = int(max(seconds, 0))
-    if seconds < 60:
-        return f"{seconds}s"
-    minutes, secs = divmod(seconds, 60)
-    if minutes < 60:
-        return f"{minutes}m {secs}s"
-    hours, minutes = divmod(minutes, 60)
-    if hours < 24:
-        return f"{hours}h {minutes}m"
-    days, hours = divmod(hours, 24)
-    return f"{days}d {hours}h"
+from app.notifier import WebhookNotifier
+from app.utils import format_duration
 
 
 def build_status(db: Database) -> list[dict]:
@@ -66,7 +56,16 @@ async def lifespan(app: FastAPI):
         services = load_services(os.getenv("STATUSWATCH_SERVICES", "services.json"))
         interval = float(os.getenv("STATUSWATCH_INTERVAL", "30"))
         threshold = int(os.getenv("STATUSWATCH_FAILURE_THRESHOLD", "3"))
-        task = asyncio.create_task(run_forever(services, db, interval, threshold))
+
+        webhook_url = os.getenv("STATUSWATCH_WEBHOOK_URL")
+        notifier = (
+            WebhookNotifier(webhook_url, os.getenv("STATUSWATCH_WEBHOOK_KIND", "discord"))
+            if webhook_url
+            else None
+        )
+        task = asyncio.create_task(
+            run_forever(services, db, interval, threshold, notifier)
+        )
 
     yield
 
