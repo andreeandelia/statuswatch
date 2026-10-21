@@ -1,14 +1,59 @@
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager, suppress
+from datetime import datetime, timezone
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from app.config import load_services
 from app.db import Database
 from app.scheduler import run_forever
 
 DAY = 24 * 3600
+
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.filters["dt"] = lambda ts: datetime.fromtimestamp(
+    ts, tz=timezone.utc
+).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def format_duration(seconds: float) -> str:
+    seconds = int(max(seconds, 0))
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {minutes}m"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h"
+
+
+def build_status(db: Database) -> list[dict]:
+    result = []
+    for row in db.latest_per_service():
+        name = row["service"]
+        row["uptime_24h"] = db.uptime(name, DAY)
+        row["uptime_7d"] = db.uptime(name, 7 * DAY)
+        row["open_incident"] = db.get_open_incident(name)
+        result.append(row)
+    return result
+
+
+def build_banner(services: list[dict]) -> tuple[str, str]:
+    if not services:
+        return "idle", "Waiting for first checks..."
+    if any(s["open_incident"] for s in services):
+        return "bad", "Incident in progress"
+    if any(not s["ok"] for s in services):
+        return "warn", "Some checks are failing"
+    return "ok", "All systems operational"
 
 
 @asynccontextmanager
@@ -35,6 +80,30 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="StatusWatch", lifespan=lifespan)
 
 
+@app.get("/", response_class=HTMLResponse)
+def status_page(request: Request):
+    db = app.state.db
+    services = build_status(db)
+    banner_class, banner_text = build_banner(services)
+
+    now = time.time()
+    incidents = db.list_incidents(10)
+    for incident in incidents:
+        end = incident["resolved_at"] or now
+        incident["duration"] = format_duration(end - incident["started_at"])
+
+    return templates.TemplateResponse(
+        request,
+        "status.html",
+        {
+            "services": services,
+            "incidents": incidents,
+            "banner_class": banner_class,
+            "banner_text": banner_text,
+        },
+    )
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -42,15 +111,7 @@ def health():
 
 @app.get("/api/status")
 def status():
-    db = app.state.db
-    result = []
-    for row in db.latest_per_service():
-        name = row["service"]
-        row["uptime_24h"] = db.uptime(name, DAY)
-        row["uptime_7d"] = db.uptime(name, 7 * DAY)
-        row["open_incident"] = db.get_open_incident(name)
-        result.append(row)
-    return result
+    return build_status(app.state.db)
 
 
 @app.get("/api/history")

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="30">
+    <title>StatusWatch</title>
+    <style>
+        :root {
+            --bg: #f6f7f9;
+            --card: #ffffff;
+            --text: #1c1f24;
+            --muted: #6b7280;
+            --border: #e3e6ea;
+            --ok: #16a34a;
+            --bad: #dc2626;
+            --warn: #d97706;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #14161a;
+                --card: #1d2026;
+                --text: #e8eaee;
+                --muted: #9aa1ac;
+                --border: #2b2f37;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+
+        main {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 24px 16px 48px;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            font-size: 1.6rem;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 1.05rem;
+        }
+
+        h3 {
+            margin: 32px 0 12px;
+            font-size: 1.1rem;
+        }
+
+        .banner {
+            padding: 14px 18px;
+            border-radius: 10px;
+            color: #fff;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .banner.ok {
+            background: var(--ok);
+        }
+
+        .banner.warn {
+            background: var(--warn);
+        }
+
+        .banner.bad {
+            background: var(--bad);
+        }
+
+        .banner.idle {
+            background: var(--muted);
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 14px;
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .badge.up {
+            background: var(--ok);
+        }
+
+        .badge.down {
+            background: var(--bad);
+        }
+
+        .meta {
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin: 6px 0 10px;
+        }
+
+        .stats {
+            display: flex;
+            gap: 24px;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .stats span {
+            color: var(--muted);
+        }
+
+        .chart {
+            height: 120px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 8px 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .empty {
+            color: var(--muted);
+        }
+
+        footer {
+            margin-top: 32px;
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <h1>StatusWatch</h1>
+
+        <div class="banner {{ banner_class }}">{{ banner_text }}</div>
+
+        {% for s in services %}
+        <article class="card">
+            <div class="row">
+                <h2>{{ s.service }}</h2>
+                <span class="badge {{ 'up' if s.ok else 'down' }}">{{ 'Operational' if s.ok else 'Down' }}</span>
+            </div>
+            <p class="meta">
+                Last check: {{ s.ts | dt }} · {{ s.detail }}
+                {% if s.latency_ms is not none %}· {{ s.latency_ms }} ms{% endif %}
+            </p>
+            <div class="stats">
+                <div><span>Uptime 24h</span>
+                    {% if s.uptime_24h is not none %}{{ "%.2f"|format(s.uptime_24h) }}%{% else %}n/a{% endif %}
+                </div>
+                <div><span>Uptime 7d</span>
+                    {% if s.uptime_7d is not none %}{{ "%.2f"|format(s.uptime_7d) }}%{% else %}n/a{% endif %}
+                </div>
+            </div>
+            <div class="chart"><canvas data-service="{{ s.service }}"></canvas></div>
+        </article>
+        {% endfor %}
+
+        <h3>Incidents</h3>
+        {% if incidents %}
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Started</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for i in incidents %}
+                    <tr>
+                        <td>{{ i.service }}</td>
+                        <td>{{ i.started_at | dt }}</td>
+                        <td>{{ i.duration }}</td>
+                        <td>{{ 'Resolved' if i.resolved_at is not none else 'Ongoing' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty">No incidents recorded.</p>
+        {% endif %}
+
+        <footer>Page refreshes every 30 seconds. Times are shown in UTC.</footer>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script>
+        document.querySelectorAll("canvas[data-service]").forEach(async (canvas) => {
+            const name = canvas.dataset.service;
+            try {
+                const res = await fetch("/api/history?limit=60&service=" + encodeURIComponent(name));
+                const rows = (await res.json()).reverse();
+                new Chart(canvas, {
+                    type: "line",
+                    data: {
+                        labels: rows.map(r => new Date(r.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })),
+                        datasets: [{
+                            label: "Latency (ms)",
+                            data: rows.map(r => r.ok ? r.latency_ms : null),
+                            borderColor: "#2563eb",
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.3,
+                            spanGaps: false
+                        }]
+                    },
+                    options: {
+                        maintainAspectRatio: false,
+                        animation: false,
+                        plugins: { legend: { display: false } },
+                        scales: { y: { beginAtZero: true } }
+                    }
+                });
+            } catch (e) {
+                console.error("Could not load chart for", name, e);
+            }
+        });
+    </script>
+</body>
+
+</html>
